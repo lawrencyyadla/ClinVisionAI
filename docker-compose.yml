@@ -1,0 +1,145 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clinvision}
+      POSTGRES_USER: ${POSTGRES_USER:-clinvision}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clinvision}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clinvision} -d ${POSTGRES_DB:-clinvision}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME:-ClinVision AI}
+      API_VERSION: ${API_VERSION:-1.0.0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://clinvision:clinvision@postgres:5432/clinvision}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATA_DIR: /app/data
+      UPLOAD_DIR: /app/data/uploads
+      CONVERTED_DIR: /app/data/converted
+      HEATMAP_DIR: /app/data/heatmaps
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
+      CELERY_TASK_TIME_LIMIT_SECONDS: ${CELERY_TASK_TIME_LIMIT_SECONDS:-180}
+      CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: ${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-150}
+      CELERY_RESULT_EXPIRES_SECONDS: ${CELERY_RESULT_EXPIRES_SECONDS:-3600}
+      REDIS_TASK_TTL_SECONDS: ${REDIS_TASK_TTL_SECONDS:-3600}
+      MODEL_NAME: ${MODEL_NAME:-DenseNet121}
+      MODEL_VERSION: ${MODEL_VERSION:-densenet121-v1.0.0-demo}
+      MODEL_CHECKPOINT_PATH: ${MODEL_CHECKPOINT_PATH:-}
+      MODEL_HASH: ${MODEL_HASH:-demo-unvalidated}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-8}
+    ports:
+      - "8000:8000"
+    volumes:
+      - scan_uploads:/app/data/uploads
+      - scan_converted:/app/data/converted
+      - scan_heatmaps:/app/data/heatmaps
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "app.tasks.inference_tasks.celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME:-ClinVision AI}
+      API_VERSION: ${API_VERSION:-1.0.0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://clinvision:clinvision@postgres:5432/clinvision}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATA_DIR: /app/data
+      UPLOAD_DIR: /app/data/uploads
+      CONVERTED_DIR: /app/data/converted
+      HEATMAP_DIR: /app/data/heatmaps
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
+      CELERY_TASK_TIME_LIMIT_SECONDS: ${CELERY_TASK_TIME_LIMIT_SECONDS:-180}
+      CELERY_TASK_SOFT_TIME_LIMIT_SECONDS: ${CELERY_TASK_SOFT_TIME_LIMIT_SECONDS:-150}
+      CELERY_RESULT_EXPIRES_SECONDS: ${CELERY_RESULT_EXPIRES_SECONDS:-3600}
+      REDIS_TASK_TTL_SECONDS: ${REDIS_TASK_TTL_SECONDS:-3600}
+      MODEL_NAME: ${MODEL_NAME:-DenseNet121}
+      MODEL_VERSION: ${MODEL_VERSION:-densenet121-v1.0.0-demo}
+      MODEL_CHECKPOINT_PATH: ${MODEL_CHECKPOINT_PATH:-}
+      MODEL_HASH: ${MODEL_HASH:-demo-unvalidated}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-8}
+    volumes:
+      - scan_uploads:/app/data/uploads
+      - scan_converted:/app/data/converted
+      - scan_heatmaps:/app/data/heatmaps
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_POLL_TIMEOUT_MS: ${NEXT_PUBLIC_POLL_TIMEOUT_MS:-180000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  scan_uploads:
+  scan_converted:
+  scan_heatmaps:
