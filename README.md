@@ -143,12 +143,3 @@ LLM prompts receive only prediction, confidence, confidence status, Grad-CAM reg
 - The application is a local single-user MVP with no authentication or multi-tenant authorization.
 - The project does not claim HIPAA, FDA, SOC 2, or production medical device compliance.
 
-## Resume Highlights
-
-- Architected an asynchronous medical imaging AI platform using FastAPI, Celery, Redis, PostgreSQL, and PyTorch to process DICOM/JPG/PNG chest X-rays outside the request path.
-- Engineered privacy-aware DICOM preprocessing with metadata sanitization, VOI LUT/windowing, DenseNet121 demo inference, confidence thresholding, and Grad-CAM explainability overlays.
-- Integrated local LLM findings with template fallback, structured JSON logging, Prometheus metrics, Grafana dashboards, and Docker Compose deployment to demonstrate production-style ML observability.
-
-## Educational Disclaimer
-
-ClinVision AI is a portfolio MVP for software engineering and ML systems demonstration. It is not clinically validated, does not provide medical advice, and must not be used as a diagnostic system.
